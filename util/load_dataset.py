@@ -122,33 +122,21 @@ def write_5lms(points,txt_temp):
     
 class CelebDataset(torch.utils.data.Dataset):
 
-    def __init__(self,device,root,train,height,width,scale,landmark_file=False,test_mode = False,occloss_mode = False,is_use_aug=True,bfm_folder='./BFM'):
+    def __init__(self,root,train,height=224,width=224,scale=1,landmark_file=False,is_use_aug=True,bfm_folder='./BFM'):
         super(CelebDataset,self)
-        self.test_mode = test_mode
+        
         self.train = train
-        self.is_occ_mode =occloss_mode
+        
         # Set is_use_aug as True if data augmentation is required during training. 
         self.use_aug = is_use_aug 
-
-        # Get landmark files
-        if self.train:
-            landmark_filename = root+'../train_landmarks.csv'
-        else:
-            landmark_filename = root+'../val_landmarks.csv'
-        if self.test_mode:
-            self.train = False
-            if landmark_file:
-                landmark_filename = landmark_file
-            else:
-                landmark_filename = root+'../test_landmarks.csv'
-        if 'NoWDataset' in root:
-            landmark_filename = root+'nowchallenge_landmarks.csv'
-        print('Dataset:'+landmark_filename)
-        self.landmark_list = list(csv.reader(open(landmark_filename),delimiter=','))
+        self.test_mode = not self.train
+        
+        print('Dataset:'+landmark_file)
+        if not os.path.exists(landmark_file): print('No landmark file available!!')
+        self.landmark_list = list(csv.reader(open(landmark_file),delimiter=','))
         self.num = len(self.landmark_list)
 
         self.root = root
-        self.device = device
         self.scale = scale
         self.width = width
         self.height = height
@@ -165,27 +153,27 @@ class CelebDataset(torch.utils.data.Dataset):
     
     def __getitem__(self,index):
         
-        
-        filename = self.root+self.landmark_list[index][0].replace('//','/')
         landmark_cpu = [int(x) for x in self.landmark_list[index][1:]]
+        filename = self.landmark_list[index][0]
 
         if os.path.exists(filename):
-            image = cv2.imread(filename)
-            image=cv2.resize(image,(224,224))
+            filename_ = filename
+            
         else:
-            print('Image does not exist: ' + filename)
+            filename = os.path.join(self.root,self.landmark_list[index][0])
+            if os.path.exists(filename):
+                filename_ = filename
+            else:
+                print('Image does not exist: ' + filename)
         
-        raw_img = Image.open(filename).convert('RGB')
+        
+        raw_img = Image.open(filename_).convert('RGB')
         _, H = raw_img.size
         raw_lm = np.reshape(np.asarray(landmark_cpu),(-1,2)).astype(np.float32)
         raw_lm = np.stack([raw_lm[:,0],H-raw_lm[:,1]],1)
         
         
-        try:
-            _, img, lm, msk = align_img(raw_img, raw_lm, self.lm3d_std, mask=None)
-        except:
-            index+=1
-            self.__getitem__(index+1)
+        _, img, lm, msk = align_img(raw_img, raw_lm, self.lm3d_std, mask=None)
         
         # Data augmentation is only for training
         aug_flag = self.use_aug and self.train
@@ -194,25 +182,27 @@ class CelebDataset(torch.utils.data.Dataset):
             
         _, H = img.size
         transform = get_transform()
-        img_tensor = transform(img).to(self.device)
+        img_tensor = transform(img)#.to(self.device)
 
         lm = np.stack([lm[:,0],H-lm[:,1]],1)
-        lm_tensor = parse_label(lm.T).to(self.device)
+        lm_tensor = parse_label(lm.T)#.to(self.device)
 
 
-
+        out={}
+        out['landmark'] = lm_tensor
+        out['img'] = img_tensor
+        out['filename'] = filename
+        
         if self.test_mode:
-        #Get GT masks for testing
+        #Get GT masks for testing, if exist
             skin_vis_mask_path = filename.replace('.bmp','.jpg').replace('.png','.jpg').replace('.jpg','_visible_skin_mask.png')
             if os.path.exists(skin_vis_mask_path):
                 raw_gtmask = Image.open(skin_vis_mask_path)
                 _, gt_mask, _, _ = align_img(raw_gtmask, raw_lm, self.lm3d_std, mask=None)
-                gt_mask_tensor = transform(gt_mask)[:1, ...].to(self.device)
-            else:
-                gt_mask_tensor = False
-            return img_tensor,filename, gt_mask_tensor,lm_tensor
-    
-        return img_tensor, lm_tensor
+                gt_mask_tensor = transform(gt_mask)[:1, ...]#.to(self.device)
+                out['mask_gt'] = gt_mask_tensor
+
+        return out
         
         
     def _augmentation(self, img, lm,  msk=None):
@@ -222,5 +212,4 @@ class CelebDataset(torch.utils.data.Dataset):
         if msk is not None:
             msk = apply_img_affine(msk, affine_inv, method=Image.BILINEAR)
         return img, lm, msk
-        
-
+   

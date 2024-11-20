@@ -2,11 +2,36 @@ import torch
 import numpy as np
 import cv2 as cv
 import sys
-# import configparser
+import csv
 import os
 import cv2
 
 device_ids=[0,1,2,3]
+
+
+def get_loss_log_writer(ct,output_path,today):
+    loss_log_path_train = output_path+today.strftime("%b-%d-%Y")+"loss_train.csv"
+    loss_log_path_test = output_path+today.strftime("%b-%d-%Y")+"loss_test.csv"
+    if ct != 0:
+        try:
+            fid_train = open(loss_log_path_train, 'a')
+            fid_test = open(loss_log_path_test, 'a')
+        except:
+        	fid_train = open(loss_log_path_train, 'w')
+        	fid_test = open(loss_log_path_test, 'w')
+    else:
+        fid_train = open(loss_log_path_train, 'w')
+        fid_test = open(loss_log_path_test, 'w')
+    writer_train = csv.writer(fid_train, lineterminator="\r\n")
+    writer_test = csv.writer(fid_test, lineterminator="\r\n")
+    return writer_train,writer_test,loss_log_path_train,loss_log_path_test,\
+        fid_train,fid_test
+
+def init_meanlosses(num_losses=10): return torch.zeros([num_losses])
+
+
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 def get_all_files_endwith(image_dir,ending):
     '''------------------------------------------------------------------------
@@ -47,8 +72,18 @@ def write_obj_with_colors(obj_name, vertices, triangles, colors=None):
             s = 'f {} {} {}\n'.format(triangles[i, 2], triangles[i, 1], triangles[i, 0])
             f.write(s)
 
-font = cv2.FONT_HERSHEY_SIMPLEX 
-
+font = cv2.FONT_HERSHEY_SIMPLEX
+ 
+def str2bool(v):
+    if isinstance(v, bool):
+        return v
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
+       
 
 def show_normal_images(img,lm= None,batch=12):
     '''
